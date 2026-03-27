@@ -244,7 +244,6 @@ def generate_puzzle(difficulty: str = "medium", seed: Optional[int] = None) -> d
             result["solver_steps"]
             + result["branch_count"] * 50
             + result["dead_end_count"] * 20
-            + result["max_depth_reached"] * 10
             - result["forced_move_count"] * 5
         )
         result["difficulty_score"] = round(result["difficulty_score_raw"] / 1000, 1)

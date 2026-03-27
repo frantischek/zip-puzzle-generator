@@ -69,7 +69,7 @@ def print_progress(current: int, total: int, start_time: float) -> None:
         print(file=sys.stderr, flush=True)
 
 
-def summarize_runs(difficulty: str, start_seed: int, count: int, runs: list[dict]) -> dict:
+def summarize_runs(difficulty: str, start_seed: int, count: int, seed_step: int, runs: list[dict]) -> dict:
     successes = [run for run in runs if not run["error"]]
     failures = [run for run in runs if run["error"]]
 
@@ -77,6 +77,7 @@ def summarize_runs(difficulty: str, start_seed: int, count: int, runs: list[dict
         "difficulty": difficulty,
         "start_seed": start_seed,
         "count": count,
+        "seed_step": seed_step,
         "success_count": len(successes),
         "failure_count": len(failures),
         "runs": runs,
@@ -114,21 +115,22 @@ def summarize_runs(difficulty: str, start_seed: int, count: int, runs: list[dict
     return summary
 
 
-def run_benchmark(difficulty: str, start_seed: int, count: int) -> dict:
+def run_benchmark(difficulty: str, start_seed: int, count: int, seed_step: int) -> dict:
     runs: list[dict] = []
     started = time.time()
     for offset in range(count):
-        requested_seed = start_seed + offset
+        requested_seed = start_seed + (offset * seed_step)
         result = generate_puzzle(difficulty=difficulty, seed=requested_seed)
         runs.append(build_run_record(requested_seed, result))
         print_progress(offset + 1, count, started)
-    return summarize_runs(difficulty, start_seed, count, runs)
+    return summarize_runs(difficulty, start_seed, count, seed_step, runs)
 
 
 def print_human_summary(summary: dict) -> None:
     print(f"Difficulty:           {summary['difficulty']}")
     print(f"Start seed:           {summary['start_seed']}")
     print(f"Count:                {summary['count']}")
+    print(f"Seed step:            {summary['seed_step']}")
     print(f"Successes:            {summary['success_count']}")
     print(f"Failures:             {summary['failure_count']}")
 
@@ -208,6 +210,7 @@ def main() -> int:
     parser.add_argument("--difficulty", choices=["easy", "medium", "hard"], default="medium")
     parser.add_argument("--start-seed", type=int, required=True)
     parser.add_argument("--count", type=int, default=20)
+    parser.add_argument("--seed-step", type=int, default=1)
     parser.add_argument("--format", choices=["human", "json"], default="human")
     parser.add_argument("--csv", type=Path, help="Optional CSV output path for per-run data.")
     args = parser.parse_args()
@@ -215,11 +218,15 @@ def main() -> int:
     if args.count <= 0:
         print("count must be greater than 0", file=sys.stderr)
         return 2
+    if args.seed_step <= 0:
+        print("seed-step must be greater than 0", file=sys.stderr)
+        return 2
 
     summary = run_benchmark(
         difficulty=args.difficulty,
         start_seed=args.start_seed,
         count=args.count,
+        seed_step=args.seed_step,
     )
 
     if args.csv:

@@ -4,6 +4,7 @@ Coord = Tuple[int, int]
 
 DIFFICULTY_CONFIG = {
     "easy": {
+        "candidate_pool_size": 2,
         "grid_size": 6,
         "min_dot_count": 5,
         "max_dot_count": 7,
