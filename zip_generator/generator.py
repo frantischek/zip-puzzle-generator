@@ -97,64 +97,72 @@ def try_generate(config: dict, rng: _random_module.Random):
     if checkpoints is None:
         return None
 
-    # 5. Generate walls (strategic placement)
-    walls = generate_walls(grid_size, path, checkpoints, config, rng)
+    # 5-11. Try multiple wall configurations for the same path+checkpoints.
+    # Many random wall sets fail the uniqueness check; retrying with different
+    # walls (same rng, advancing state each call) raises the success rate
+    # significantly without regenerating the full path each time.
 
-    # 6. Verify solution path isn't blocked by walls
-    if not verify_solution_connectivity(path, walls):
-        return None
-
-    # 7. Board connectivity check
-    if not covers_whole_board(checkpoints, walls, grid_size):
-        return None
-
-    # 8. Quick BFS reachability between consecutive checkpoints
-    if not quick_validity_check(walls, checkpoints, grid_size):
-        return None
-
-    # 9. Build grid for solver
+    # Build grid once – it doesn't depend on walls
     grid = [[None] * n for _ in range(n)]
     for cp in checkpoints:
         grid[cp["y"]][cp["x"]] = cp["number"]
 
-    # 10. Verify unique solution via backtracking solver
-    solver_path, solver_stats = solve_unique_path(
-        grid, walls, step_cap=config["solver_step_cap"]
-    )
-    if isinstance(solver_stats, int):
-        solver_stats = {
-            "solver_steps": solver_stats,
-            "branch_count": 0,
-            "dead_end_count": 0,
-            "forced_move_count": 0,
-            "max_depth_reached": 0,
+    min_steps = config.get("min_solver_steps", 0)
+    wall_retries = config.get("wall_retry_attempts", 8)
+
+    for _ in range(wall_retries):
+        # 5. Generate walls (strategic placement)
+        walls = generate_walls(grid_size, path, checkpoints, config, rng)
+
+        # 6. Verify solution path isn't blocked by walls
+        if not verify_solution_connectivity(path, walls):
+            continue
+
+        # 7. Board connectivity check
+        if not covers_whole_board(checkpoints, walls, grid_size):
+            continue
+
+        # 8. Quick BFS reachability between consecutive checkpoints
+        if not quick_validity_check(walls, checkpoints, grid_size):
+            continue
+
+        # 9. Verify unique solution via backtracking solver
+        solver_path, solver_stats = solve_unique_path(
+            grid, walls, step_cap=config["solver_step_cap"]
+        )
+        if isinstance(solver_stats, int):
+            solver_stats = {
+                "solver_steps": solver_stats,
+                "branch_count": 0,
+                "dead_end_count": 0,
+                "forced_move_count": 0,
+                "max_depth_reached": 0,
+            }
+
+        if solver_path is None:
+            continue
+
+        # 10. Difficulty filter: reject if too easy
+        if min_steps > 0 and solver_stats["solver_steps"] < min_steps:
+            continue
+
+        # Convert solver path [row,col] -> {"x": col, "y": row}
+        solution_path = [{"x": c, "y": r} for r, c in solver_path]
+
+        return {
+            "grid_size": grid_size,
+            "checkpoints": checkpoints,
+            "solution_path": solution_path,
+            "checkpoint_count": cp_count,
+            "walls": walls,
+            "solver_steps": solver_stats["solver_steps"],
+            "branch_count": solver_stats["branch_count"],
+            "dead_end_count": solver_stats["dead_end_count"],
+            "forced_move_count": solver_stats["forced_move_count"],
+            "max_depth_reached": solver_stats["max_depth_reached"],
         }
 
-    if solver_path is None:
-        return None
-
-    # 11. Difficulty filter: reject if too easy
-    min_steps = config.get("min_solver_steps", 0)
-    if min_steps > 0 and solver_stats["solver_steps"] < min_steps:
-        return None
-
-
-
-    # Convert solver path [row,col] -> {"x": col, "y": row}
-    solution_path = [{"x": c, "y": r} for r, c in solver_path]
-
-    return {
-        "grid_size": grid_size,
-        "checkpoints": checkpoints,
-        "solution_path": solution_path,
-        "checkpoint_count": cp_count,
-        "walls": walls,
-        "solver_steps": solver_stats["solver_steps"],
-        "branch_count": solver_stats["branch_count"],
-        "dead_end_count": solver_stats["dead_end_count"],
-        "forced_move_count": solver_stats["forced_move_count"],
-        "max_depth_reached": solver_stats["max_depth_reached"],
-    }
+    return None
 
 
 def select_candidate(candidates: List[dict], difficulty: str) -> dict:
