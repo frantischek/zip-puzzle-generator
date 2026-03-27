@@ -152,14 +152,14 @@ def generate_puzzle(difficulty: str = "medium", seed: Optional[int] = None) -> d
     max_attempts = config["retry_attempts"]
     started = time.time()
 
-    for attempt in range(1, max_attempts + 1):
+    for attempt in range(max_attempts):
         attempt_seed = base_seed + attempt
         rng = _random_module.Random(attempt_seed)
         result = try_generate(config, rng)
         if result is not None:
             elapsed = time.time() - started
             result["seed"] = attempt_seed
-            result["attempts"] = attempt
+            result["attempts"] = attempt + 1
             result["elapsed_seconds"] = round(elapsed, 2)
             result["error"] = False
             return result
