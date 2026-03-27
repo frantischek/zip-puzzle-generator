@@ -2,19 +2,6 @@
 
 Python tool to generate uniquely solvable Zip-style puzzles.
 
-## What changed in this refactor
-
-The original single-file script was split into modules:
-
-- `zip_generator/config.py` — difficulty presets
-- `zip_generator/pathing.py` — Hamiltonian path generation, path transforms, checkpoint placement
-- `zip_generator/validation.py` — connectivity checks
-- `zip_generator/solver.py` — unique-solution solver
-- `zip_generator/generator.py` — wall generation and orchestration
-- `zip_generator/cli.py` — command-line entry point
-
-This makes the project easier to test, extend, and publish on GitHub.
-
 ## Features
 
 - Difficulty levels: `easy`, `medium`, `hard`
@@ -22,6 +9,17 @@ This makes the project easier to test, extend, and publish on GitHub.
 - Unique-solution verification
 - JSON output
 - CLI mode and stdin JSON mode
+
+## Inspiration
+
+The generated puzzles are inspired by the "Zip" puzzle format popularized by LinkedIn games.
+
+This project is an independent implementation and is not affiliated with or endorsed by LinkedIn.
+
+A German version of a similar puzzle can be played here:
+https://www.spielekisterl.at/zip
+
+This generator is designed for use in web or mobile puzzle games.
 
 ## Requirements
 
