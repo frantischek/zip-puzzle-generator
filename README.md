@@ -81,18 +81,6 @@ Run tests:
 pytest
 ```
 
-## Suggested GitHub files
-
-This starter repo includes:
-
-- `README.md`
-- `LICENSE`
-- `.gitignore`
-- `tests/`
-- GitHub Actions workflow for tests
-
-That is enough for a first public repo without looking half-finished.
-
 ## Notes
 
 - Generation can take multiple attempts, especially on harder difficulties.
