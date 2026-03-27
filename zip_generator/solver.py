@@ -1,5 +1,5 @@
 def solve_unique_path(grid: list, walls: list, step_cap: int = 300_000):
-    """Returns (path, steps) or (None, steps).
+    """Returns (path, stats) or (None, stats).
 
     Uses iterative DFS to avoid Python function-call overhead.
     Counts solutions: returns the path only if exactly one exists.
@@ -44,7 +44,13 @@ def solve_unique_path(grid: list, walls: list, step_cap: int = 300_000):
     path = []  # current path as list of (r, c)
     solutions = 0
     result = None
-    steps = 0
+    stats = {
+        "solver_steps": 0,
+        "branch_count": 0,
+        "dead_end_count": 0,
+        "forced_move_count": 0,
+        "max_depth_reached": 0,
+    }
 
     # Stack entries: (r, c, curr_num, neighbor_idx, is_entering)
     # is_entering=True means we're visiting this cell for the first time
@@ -54,39 +60,36 @@ def solve_unique_path(grid: list, walls: list, step_cap: int = 300_000):
     while stack:
         if solutions > 1:
             break
-        steps += 1
-        if steps > step_cap:
+        stats["solver_steps"] += 1
+        if stats["solver_steps"] > step_cap:
             solutions = 2
             break
 
         r, c, curr_num, ni, entering = stack[-1]
 
         if entering:
-            # First visit: mark visited, add to path
             if visited[r][c]:
                 stack.pop()
                 continue
             visited[r][c] = True
             path.append((r, c))
+            if len(path) > stats["max_depth_reached"]:
+                stats["max_depth_reached"] = len(path)
             stack[-1] = (r, c, curr_num, 0, False)
 
-            # Check if we reached the goal
             if r == end[0] and c == end[1] and len(path) == total:
                 solutions += 1
                 result = list(path)
-                # Backtrack to continue searching for more solutions
                 path.pop()
                 visited[r][c] = False
                 stack.pop()
                 continue
             continue
 
-        # Explore neighbors from index ni onward
         neighbors = adj[r][c]
-        found_next = False
-        while ni < len(neighbors):
-            nr, nc = neighbors[ni]
-            ni += 1
+        candidates = []
+        for idx in range(ni, len(neighbors)):
+            nr, nc = neighbors[idx]
 
             if visited[nr][nc]:
                 continue
@@ -97,17 +100,23 @@ def solve_unique_path(grid: list, walls: list, step_cap: int = 300_000):
                 continue
 
             new_num = cell_val if cell_val is not None else curr_num
-            # Save our progress and push the new cell
-            stack[-1] = (r, c, curr_num, ni, False)
-            stack.append((nr, nc, new_num, 0, True))
-            found_next = True
-            break
+            candidates.append((idx + 1, nr, nc, new_num))
 
-        if not found_next:
-            # All neighbors exhausted — backtrack
+        if not candidates:
+            stats["dead_end_count"] += 1
             path.pop()
             visited[r][c] = False
             stack.pop()
+            continue
+
+        if len(candidates) == 1:
+            stats["forced_move_count"] += 1
+        else:
+            stats["branch_count"] += 1
+
+        next_ni, nr, nc, new_num = candidates[0]
+        stack[-1] = (r, c, curr_num, next_ni, False)
+        stack.append((nr, nc, new_num, 0, True))
 
     found_path = result if solutions == 1 else None
-    return found_path, steps
+    return found_path, stats

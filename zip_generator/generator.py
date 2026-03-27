@@ -118,17 +118,27 @@ def try_generate(config: dict, rng: _random_module.Random):
         grid[cp["y"]][cp["x"]] = cp["number"]
 
     # 10. Verify unique solution via backtracking solver
-    solver_path, solver_steps = solve_unique_path(
+    solver_path, solver_stats = solve_unique_path(
         grid, walls, step_cap=config["solver_step_cap"]
     )
+    if isinstance(solver_stats, int):
+        solver_stats = {
+            "solver_steps": solver_stats,
+            "branch_count": 0,
+            "dead_end_count": 0,
+            "forced_move_count": 0,
+            "max_depth_reached": 0,
+        }
 
     if solver_path is None:
         return None
 
     # 11. Difficulty filter: reject if too easy
     min_steps = config.get("min_solver_steps", 0)
-    if min_steps > 0 and solver_steps < min_steps:
+    if min_steps > 0 and solver_stats["solver_steps"] < min_steps:
         return None
+
+
 
     # Convert solver path [row,col] -> {"x": col, "y": row}
     solution_path = [{"x": c, "y": r} for r, c in solver_path]
@@ -139,9 +149,33 @@ def try_generate(config: dict, rng: _random_module.Random):
         "solution_path": solution_path,
         "checkpoint_count": cp_count,
         "walls": walls,
-        "solver_steps": solver_steps,
+        "solver_steps": solver_stats["solver_steps"],
+        "branch_count": solver_stats["branch_count"],
+        "dead_end_count": solver_stats["dead_end_count"],
+        "forced_move_count": solver_stats["forced_move_count"],
+        "max_depth_reached": solver_stats["max_depth_reached"],
     }
 
+
+def select_candidate(candidates: List[dict], difficulty: str) -> dict:
+    """Select a candidate based on the computed difficulty score.
+
+    easy   -> easiest valid candidate
+    medium -> middle candidate after sorting by score
+    hard   -> hardest valid candidate
+    """
+    if not candidates:
+        raise ValueError("No candidates available")
+
+    ranked = sorted(candidates, key=lambda c: c["difficulty_score_raw"])
+
+    if difficulty == "easy":
+        return ranked[0]
+    if difficulty == "hard":
+        return ranked[-1]
+
+    # medium: prefer the middle instead of the absolute easiest/hardest
+    return ranked[len(ranked) // 2]
 
 def generate_puzzle(difficulty: str = "medium", seed: Optional[int] = None) -> dict:
     config = DIFFICULTY_CONFIG.get(difficulty)
@@ -152,20 +186,80 @@ def generate_puzzle(difficulty: str = "medium", seed: Optional[int] = None) -> d
     max_attempts = config["retry_attempts"]
     started = time.time()
 
-    for attempt in range(max_attempts):
+    pool_size = config.get(
+        "candidate_pool_size",
+        1 if difficulty == "easy" else 3 if difficulty == "medium" else 5,
+    )
+    scan_limit = min(
+        max_attempts,
+        config.get(
+            "candidate_scan_attempts",
+            20 if difficulty == "easy" else 80 if difficulty == "medium" else 160,
+        ),
+    )
+    min_attempts_before_selection = config.get(
+        "min_attempts_before_selection",
+        1 if difficulty == "easy" else 12 if difficulty == "medium" else 40,
+    )
+    max_no_new_candidate_streak = config.get(
+        "max_no_new_candidate_streak",
+        8 if difficulty == "easy" else 10 if difficulty == "medium" else 40,
+    )
+
+    candidates: List[dict] = []
+    scanned_attempts = 0
+    no_new_candidate_streak = 0
+
+    for attempt in range(scan_limit):
+        scanned_attempts = attempt + 1
         attempt_seed = base_seed + attempt
         rng = _random_module.Random(attempt_seed)
         result = try_generate(config, rng)
-        if result is not None:
-            elapsed = time.time() - started
-            result["seed"] = attempt_seed
-            result["attempts"] = attempt + 1
-            result["elapsed_seconds"] = round(elapsed, 2)
-            result["error"] = False
-            return result
+        if result is None:
+            no_new_candidate_streak += 1
+            if (
+                len(candidates) >= pool_size
+                and scanned_attempts >= min_attempts_before_selection
+            ):
+                break
+            if (
+                candidates
+                and scanned_attempts >= min_attempts_before_selection
+                and no_new_candidate_streak >= max_no_new_candidate_streak
+            ):
+                break
+            continue
+        no_new_candidate_streak = 0
+        result["seed"] = attempt_seed
+        result["attempts"] = attempt + 1
+        result["difficulty_score_raw"] = (
+            result["solver_steps"]
+            + result["branch_count"] * 50
+            + result["dead_end_count"] * 20
+            + result["max_depth_reached"] * 10
+            - result["forced_move_count"] * 5
+        )
+        result["difficulty_score"] = round(result["difficulty_score_raw"] / 1000, 1)
+        candidates.append(result)
+
+        if (
+            len(candidates) >= pool_size
+            and scanned_attempts >= min_attempts_before_selection
+        ):
+            break
 
     elapsed = time.time() - started
-    return {
-        "error": True,
-        "message": f"Failed after {max_attempts} attempts ({elapsed:.1f}s) for difficulty '{difficulty}'",
-    }
+
+    if not candidates:
+        return {
+            "error": True,
+            "message": f"Failed after {scanned_attempts} scanned attempts ({elapsed:.1f}s) for difficulty '{difficulty}'",
+        }
+
+    best = select_candidate(candidates, difficulty)
+    best["elapsed_seconds"] = round(elapsed, 2)
+    best["collected_candidates"] = len(candidates)
+    best["target_candidate_pool_size"] = pool_size
+    best["scanned_attempts"] = scanned_attempts
+    best["error"] = False
+    return best
