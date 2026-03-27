@@ -55,14 +55,22 @@ echo '{"difficulty":"medium","seed":1234}' | python zip_generator.py --stdin-jso
 You can benchmark puzzle generation across multiple seeds with:
 
 ```bash
-python tools/benchmark_generator.py --difficulty medium --start-seed 1234 --count 20
+python tools/benchmark_generator.py --difficulty medium --start-seed 1234 --count 20 --seed-step 50
 ```
 
 Optional CSV output:
 
 ```bash
-python tools/benchmark_generator.py --difficulty medium --start-seed 1234 --count 20 --csv medium_benchmark.csv
+python tools/benchmark_generator.py --difficulty medium --start-seed 1234 --count 20 --seed-step 50 --csv medium_benchmark.csv
 ```
+
+The `--seed-step` parameter ensures that benchmark runs use sufficiently different seeds to avoid overlapping search windows, especially important for higher difficulties.
+
+Recommended values:
+
+- easy: `--seed-step 20`
+- medium: `--seed-step 50`
+- hard: `--seed-step 100`
 
 ## Output
 
