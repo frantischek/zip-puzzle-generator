@@ -85,7 +85,9 @@ pytest
 
 - Generation can take multiple attempts, especially on harder difficulties.
 - The returned seed is the actual successful attempt seed.
-- The logic is preserved from the uploaded single-file script. This is a structural refactor, not a new algorithm.
+- If a seed is provided, the first generation attempt uses exactly that seed.
+- If generation fails, subsequent attempts increment the seed until a valid puzzle is found.
+- The `attempts` field indicates how many seeds were tried.
 
 ## License
 
