@@ -1,0 +1,171 @@
+import random as _random_module
+import time
+from typing import List, Optional
+
+from .config import DIFFICULTY_CONFIG
+from .pathing import generate_hamiltonian_path, randomize_path, place_checkpoints
+from .solver import solve_unique_path
+from .validation import verify_solution_connectivity, covers_whole_board, quick_validity_check
+
+def generate_walls(grid_size: int, solution_path: List[dict], checkpoints: List[dict],
+                   config: dict, rng: _random_module.Random) -> list:
+    if rng.random() > config["wall_probability"]:
+        return []
+
+    wall_count = rng.randint(config["min_wall_count"], config["max_wall_count"])
+    if wall_count <= 0:
+        return []
+
+    # Build set of solution segments (normalised)
+    sol_segs = set()
+    for i in range(len(solution_path) - 1):
+        p1 = (solution_path[i]["x"], solution_path[i]["y"])
+        p2 = (solution_path[i + 1]["x"], solution_path[i + 1]["y"])
+        seg = tuple(sorted([p1, p2]))
+        sol_segs.add(seg)
+
+    # All possible internal edges not on the solution path
+    all_walls = []
+    for y in range(grid_size):
+        for x in range(grid_size):
+            if x < grid_size - 1:
+                seg = tuple(sorted([(x, y), (x + 1, y)]))
+                if seg not in sol_segs:
+                    all_walls.append(((x, y), (x + 1, y)))
+            if y < grid_size - 1:
+                seg = tuple(sorted([(x, y), (x, y + 1)]))
+                if seg not in sol_segs:
+                    all_walls.append(((x, y), (x, y + 1)))
+
+    # Split: path-adjacent walls vs others
+    path_cells = {(c["x"], c["y"]) for c in solution_path}
+
+    path_adj = []
+    other = []
+    for w in all_walls:
+        if w[0] in path_cells or w[1] in path_cells:
+            path_adj.append(w)
+        else:
+            other.append(w)
+
+    ratio = config.get("path_adjacent_wall_ratio", 0.7)
+    adj_count = min(len(path_adj), int(wall_count * ratio + 0.5))
+    other_count = min(len(other), wall_count - adj_count)
+
+    rng.shuffle(path_adj)
+    rng.shuffle(other)
+
+    selected = path_adj[:adj_count] + other[:other_count]
+
+    # Fill up if not enough
+    if len(selected) < wall_count:
+        remaining = path_adj[adj_count:]
+        selected += remaining[: wall_count - len(selected)]
+
+    # Convert to [row, col] format
+    return [
+        {"cell1": [w[0][1], w[0][0]], "cell2": [w[1][1], w[1][0]]}
+        for w in selected
+    ]
+
+def try_generate(config: dict, rng: _random_module.Random):
+    """Returns puzzle dict or None."""
+    grid_size = config["grid_size"]
+    n = grid_size
+
+    # 1. Hamiltonian path
+    path = generate_hamiltonian_path(n, rng)
+    if path is None:
+        return None
+
+    # 2. Geometric randomisation
+    path = randomize_path(path, n, rng)
+
+    # 3. Determine checkpoint count
+    path_len = len(path)
+    max_possible = (path_len - 1) // config["min_spacing"] + 1
+    if max_possible < config["min_dot_count"]:
+        return None
+    upper = min(config["max_dot_count"], max_possible)
+    cp_count = rng.randint(config["min_dot_count"], upper)
+
+    # 4. Place checkpoints
+    checkpoints = place_checkpoints(
+        path, cp_count, config["min_spacing"], rng,
+        config.get("min_checkpoint_distance", 0),
+    )
+    if checkpoints is None:
+        return None
+
+    # 5. Generate walls (strategic placement)
+    walls = generate_walls(grid_size, path, checkpoints, config, rng)
+
+    # 6. Verify solution path isn't blocked by walls
+    if not verify_solution_connectivity(path, walls):
+        return None
+
+    # 7. Board connectivity check
+    if not covers_whole_board(checkpoints, walls, grid_size):
+        return None
+
+    # 8. Quick BFS reachability between consecutive checkpoints
+    if not quick_validity_check(walls, checkpoints, grid_size):
+        return None
+
+    # 9. Build grid for solver
+    grid = [[None] * n for _ in range(n)]
+    for cp in checkpoints:
+        grid[cp["y"]][cp["x"]] = cp["number"]
+
+    # 10. Verify unique solution via backtracking solver
+    solver_path, solver_steps = solve_unique_path(
+        grid, walls, step_cap=config["solver_step_cap"]
+    )
+
+    if solver_path is None:
+        return None
+
+    # 11. Difficulty filter: reject if too easy
+    min_steps = config.get("min_solver_steps", 0)
+    if min_steps > 0 and solver_steps < min_steps:
+        return None
+
+    # Convert solver path [row,col] -> {"x": col, "y": row}
+    solution_path = [{"x": c, "y": r} for r, c in solver_path]
+
+    return {
+        "grid_size": grid_size,
+        "checkpoints": checkpoints,
+        "solution_path": solution_path,
+        "checkpoint_count": cp_count,
+        "walls": walls,
+        "solver_steps": solver_steps,
+    }
+
+
+def generate_puzzle(difficulty: str = "medium", seed: Optional[int] = None) -> dict:
+    config = DIFFICULTY_CONFIG.get(difficulty)
+    if config is None:
+        raise ValueError(f"Unknown difficulty: {difficulty}")
+
+    base_seed = seed if seed is not None else int(time.time() * 1000) % (2**31)
+    max_attempts = config["retry_attempts"]
+    started = time.time()
+
+    for attempt in range(1, max_attempts + 1):
+        attempt_seed = base_seed + attempt
+        rng = _random_module.Random(attempt_seed)
+        result = try_generate(config, rng)
+        if result is not None:
+            elapsed = time.time() - started
+            result["seed"] = attempt_seed
+            result["attempts"] = attempt
+            result["elapsed_seconds"] = round(elapsed, 2)
+            result["error"] = False
+            return result
+
+    elapsed = time.time() - started
+    return {
+        "error": True,
+        "message": f"Failed after {max_attempts} attempts ({elapsed:.1f}s) for difficulty '{difficulty}'",
+    }
